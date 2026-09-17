@@ -34,7 +34,7 @@ final class VendorController
         try {
             $stmt = $db->prepare(
                 'INSERT INTO kyc_documents (user_id, document_type, file_reference, verification_status)
-                 VALUES (:user_id, :document_type, :file_reference, "pending")'
+                 VALUES (:user_id, :document_type, :file_reference, \'pending\')'
             );
             foreach ($documents as $document) {
                 $stmt->execute([
@@ -46,7 +46,7 @@ final class VendorController
 
             $stmt = $db->prepare(
                 'INSERT INTO vendor_listings (vendor_id, category, business_name, portfolio_urls, pricing_model, base_price, service_area, status)
-                 VALUES (:vendor_id, :category, :business_name, :portfolio_urls, :pricing_model, :base_price, :service_area, "active")'
+                 VALUES (:vendor_id, :category, :business_name, :portfolio_urls, :pricing_model, :base_price, :service_area, \'active\')'
             );
             $stmt->execute([
                 'vendor_id' => $vendorId,
@@ -58,7 +58,7 @@ final class VendorController
                 'service_area' => $request->input('service_area'),
             ]);
 
-            $stmt = $db->prepare('UPDATE users SET status = "pending_verification" WHERE id = :id');
+            $stmt = $db->prepare('UPDATE users SET status = \'pending_verification\' WHERE id = :id');
             $stmt->execute(['id' => $vendorId]);
 
             $db->commit();
@@ -75,10 +75,10 @@ final class VendorController
         $category = $request->query['category'] ?? null;
 
         if ($category) {
-            $stmt = $db->prepare('SELECT * FROM vendor_listings WHERE status = "active" AND category = :category');
+            $stmt = $db->prepare('SELECT * FROM vendor_listings WHERE status = \'active\' AND category = :category');
             $stmt->execute(['category' => $category]);
         } else {
-            $stmt = $db->query('SELECT * FROM vendor_listings WHERE status = "active"');
+            $stmt = $db->query('SELECT * FROM vendor_listings WHERE status = \'active\'');
         }
 
         Response::json($stmt->fetchAll());
@@ -110,10 +110,14 @@ final class VendorController
     public function save(Request $request): void
     {
         $db = Database::connection();
-        $stmt = $db->prepare(
-            'INSERT INTO saved_vendors (customer_id, vendor_id, created_at) VALUES (:customer_id, :vendor_id, NOW())
-             ON DUPLICATE KEY UPDATE created_at = created_at'
-        );
+        // See Database::driver() and planning/00-portfolio/ui-implementation-plan.md
+        // for why this branches (Vercel's Marketplace has no MySQL-compatible database).
+        $sql = Database::driver() === 'pgsql'
+            ? 'INSERT INTO saved_vendors (customer_id, vendor_id, created_at) VALUES (:customer_id, :vendor_id, NOW())
+               ON CONFLICT (customer_id, vendor_id) DO NOTHING'
+            : 'INSERT INTO saved_vendors (customer_id, vendor_id, created_at) VALUES (:customer_id, :vendor_id, NOW())
+               ON DUPLICATE KEY UPDATE created_at = created_at';
+        $stmt = $db->prepare($sql);
         $stmt->execute(['customer_id' => $request->user['id'] ?? null, 'vendor_id' => $request->params['id']]);
 
         Response::json(['status' => 'saved']);

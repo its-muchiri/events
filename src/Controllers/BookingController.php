@@ -20,7 +20,7 @@ final class BookingController
             'INSERT INTO event_bookings
                 (customer_id, vendor_id, bundle_id, category, event_date, status, pricing_model,
                  head_count, hours_booked, total_amount, deposit_amount, created_at, updated_at)
-             VALUES (:customer_id, :vendor_id, :bundle_id, :category, :event_date, "requested", :pricing_model,
+             VALUES (:customer_id, :vendor_id, :bundle_id, :category, :event_date, \'requested\', :pricing_model,
                  :head_count, :hours_booked, :total_amount, :deposit_amount, NOW(), NOW())'
         );
         $stmt->execute([
@@ -66,7 +66,7 @@ final class BookingController
     public function cancel(Request $request): void
     {
         $db = Database::connection();
-        $stmt = $db->prepare('UPDATE event_bookings SET status = "cancelled", updated_at = NOW() WHERE id = :id');
+        $stmt = $db->prepare('UPDATE event_bookings SET status = \'cancelled\', updated_at = NOW() WHERE id = :id');
         $stmt->execute(['id' => $request->params['id']]);
 
         Response::json(['id' => (int) $request->params['id'], 'status' => 'cancelled']);
@@ -90,10 +90,14 @@ final class BookingController
     public function updateMyAvailability(Request $request): void
     {
         $db = Database::connection();
-        $stmt = $db->prepare(
-            'INSERT INTO vendor_availability (vendor_id, date, is_booked) VALUES (:vendor_id, :date, false)
-             ON DUPLICATE KEY UPDATE is_booked = is_booked'
-        );
+        // See Database::driver() and planning/00-portfolio/ui-implementation-plan.md
+        // for why this branches (Vercel's Marketplace has no MySQL-compatible database).
+        $sql = Database::driver() === 'pgsql'
+            ? 'INSERT INTO vendor_availability (vendor_id, date, is_booked) VALUES (:vendor_id, :date, false)
+               ON CONFLICT (vendor_id, date) DO NOTHING'
+            : 'INSERT INTO vendor_availability (vendor_id, date, is_booked) VALUES (:vendor_id, :date, false)
+               ON DUPLICATE KEY UPDATE is_booked = is_booked';
+        $stmt = $db->prepare($sql);
         $stmt->execute(['vendor_id' => $request->user['id'] ?? null, 'date' => $request->input('date')]);
 
         Response::json(['status' => 'updated']);

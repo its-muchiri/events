@@ -26,7 +26,7 @@ final class BundleController
             'INSERT INTO event_bundle
                 (customer_id, event_type, event_date, event_location_address, event_location_lat, event_location_lng,
                  total_bundle_amount, combined_deposit_amount, status, created_at, updated_at)
-             VALUES (:customer_id, :event_type, :event_date, :address, :lat, :lng, 0, 0, "assembling", NOW(), NOW())'
+             VALUES (:customer_id, :event_type, :event_date, :address, :lat, :lng, 0, 0, \'assembling\', NOW(), NOW())'
         );
         $stmt->execute([
             'customer_id' => $request->user['id'] ?? null,
@@ -48,7 +48,7 @@ final class BundleController
                 (customer_id, vendor_id, bundle_id, category, event_date, status, pricing_model,
                  head_count, hours_booked, total_amount, deposit_amount, created_at, updated_at)
              VALUES (:customer_id, :vendor_id, :bundle_id, :category,
-                (SELECT event_date FROM event_bundle WHERE id = :bundle_id), "requested", :pricing_model,
+                (SELECT event_date FROM event_bundle WHERE id = :bundle_id), \'requested\', :pricing_model,
                  :head_count, :hours_booked, :total_amount, :deposit_amount, NOW(), NOW())'
         );
         $stmt->execute([
@@ -70,7 +70,7 @@ final class BundleController
     {
         $db = Database::connection();
         $stmt = $db->prepare(
-            'DELETE FROM event_bookings WHERE id = :booking_id AND bundle_id = :bundle_id AND status = "requested"'
+            'DELETE FROM event_bookings WHERE id = :booking_id AND bundle_id = :bundle_id AND status = \'requested\''
         );
         $stmt->execute(['booking_id' => $request->params['bookingId'], 'bundle_id' => $request->params['id']]);
 
@@ -87,7 +87,7 @@ final class BundleController
         // operation so a bundle is never confirmed with an unavailable
         // vendor. Not yet implemented.
         $stmt = $db->prepare(
-            'UPDATE event_bundle SET status = "confirmed",
+            'UPDATE event_bundle SET status = \'confirmed\',
                 total_bundle_amount = (SELECT COALESCE(SUM(total_amount), 0) FROM event_bookings WHERE bundle_id = :id),
                 combined_deposit_amount = (SELECT COALESCE(SUM(deposit_amount), 0) FROM event_bookings WHERE bundle_id = :id),
                 updated_at = NOW()
@@ -95,7 +95,7 @@ final class BundleController
         );
         $stmt->execute(['id' => $request->params['id']]);
 
-        $stmt = $db->prepare('UPDATE event_bookings SET status = "confirmed" WHERE bundle_id = :id');
+        $stmt = $db->prepare('UPDATE event_bookings SET status = \'confirmed\' WHERE bundle_id = :id');
         $stmt->execute(['id' => $request->params['id']]);
 
         Response::json(['id' => (int) $request->params['id'], 'status' => 'confirmed']);
@@ -123,10 +123,10 @@ final class BundleController
     public function cancel(Request $request): void
     {
         $db = Database::connection();
-        $stmt = $db->prepare('UPDATE event_bundle SET status = "cancelled", updated_at = NOW() WHERE id = :id');
+        $stmt = $db->prepare('UPDATE event_bundle SET status = \'cancelled\', updated_at = NOW() WHERE id = :id');
         $stmt->execute(['id' => $request->params['id']]);
 
-        $stmt = $db->prepare('UPDATE event_bookings SET status = "cancelled" WHERE bundle_id = :id');
+        $stmt = $db->prepare('UPDATE event_bookings SET status = \'cancelled\' WHERE bundle_id = :id');
         $stmt->execute(['id' => $request->params['id']]);
 
         Response::json(['id' => (int) $request->params['id'], 'status' => 'cancelled']);
@@ -150,7 +150,7 @@ final class BundleController
         $stmt = $db->prepare(
             'INSERT INTO bundle_cancellation_incidents
                 (bundle_id, original_booking_id, cancelling_vendor_id, reported_at, days_until_event, resolution_status, coordinator_id)
-             VALUES (:bundle_id, :booking_id, :vendor_id, NOW(), :days_until_event, "seeking_replacement", NULL)'
+             VALUES (:bundle_id, :booking_id, :vendor_id, NOW(), :days_until_event, \'seeking_replacement\', NULL)'
         );
         $stmt->execute([
             'bundle_id' => $booking['bundle_id'],
@@ -159,9 +159,9 @@ final class BundleController
             'days_until_event' => $daysUntilEvent,
         ]);
 
-        $stmt = $db->prepare('UPDATE event_bookings SET status = "at_risk" WHERE id = :id');
+        $stmt = $db->prepare('UPDATE event_bookings SET status = \'at_risk\' WHERE id = :id');
         $stmt->execute(['id' => $request->params['id']]);
-        $stmt = $db->prepare('UPDATE event_bundle SET status = "at_risk" WHERE id = :id');
+        $stmt = $db->prepare('UPDATE event_bundle SET status = \'at_risk\' WHERE id = :id');
         $stmt->execute(['id' => $booking['bundle_id']]);
 
         // TODO: alert the Event Coordinator queue with urgency scaled by
@@ -201,7 +201,7 @@ final class BundleController
             'UPDATE bundle_cancellation_incidents
              SET replacement_booking_id = :replacement_booking_id,
                  replacement_price_differential = :price_differential,
-                 resolution_status = "replacement_confirmed",
+                 resolution_status = \'replacement_confirmed\',
                  resolved_at = NOW()
              WHERE id = :id'
         );
@@ -218,7 +218,7 @@ final class BundleController
     {
         $db = Database::connection();
         $stmt = $db->prepare(
-            'UPDATE bundle_cancellation_incidents SET resolution_status = "unresolved_refunded", resolved_at = NOW() WHERE id = :id'
+            'UPDATE bundle_cancellation_incidents SET resolution_status = \'unresolved_refunded\', resolved_at = NOW() WHERE id = :id'
         );
         $stmt->execute(['id' => $request->params['id']]);
 

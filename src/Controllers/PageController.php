@@ -33,7 +33,7 @@ final class PageController
                 'SELECT vl.vendor_id AS id, vl.category, vl.business_name, vl.base_price, vl.pricing_model, u.full_name
                  FROM vendor_listings vl
                  JOIN users u ON u.id = vl.vendor_id
-                 WHERE vl.status = "active"
+                 WHERE vl.status = \'active\'
                  ORDER BY vl.id DESC
                  LIMIT 6'
             );
@@ -61,12 +61,12 @@ final class PageController
             if ($category) {
                 $stmt = $db->prepare(
                     'SELECT vl.*, u.full_name FROM vendor_listings vl JOIN users u ON u.id = vl.vendor_id
-                     WHERE vl.status = "active" AND vl.category = :category'
+                     WHERE vl.status = \'active\' AND vl.category = :category'
                 );
                 $stmt->execute(['category' => $category]);
             } else {
                 $stmt = $db->query(
-                    'SELECT vl.*, u.full_name FROM vendor_listings vl JOIN users u ON u.id = vl.vendor_id WHERE vl.status = "active"'
+                    'SELECT vl.*, u.full_name FROM vendor_listings vl JOIN users u ON u.id = vl.vendor_id WHERE vl.status = \'active\''
                 );
             }
             $vendors = $stmt->fetchAll();
