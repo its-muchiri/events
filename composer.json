@@ -1,0 +1,14 @@
+{
+    "name": "artcollect-network/event-co-ke",
+    "description": "event.co.ke — single/multi-vendor event booking, e-commerce, and retention platform",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "EventCo\\": "src/"
+        }
+    }
+}
