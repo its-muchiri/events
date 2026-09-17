@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>event.co.ke — Component Showcase</title>
+<link rel="stylesheet" href="/assets/css/main.css">
+<style>
+  .showcase-section { padding-block: var(--ac-space-8); border-bottom: 1px solid var(--ac-paper-deep); }
+  .showcase-section h2 { margin-bottom: var(--ac-space-4); }
+  .showcase-row { display: flex; flex-wrap: wrap; gap: var(--ac-space-4); align-items: flex-start; }
+  .card { width: 16rem; }
+  pre.showcase-output { background: var(--ac-paper-deep); padding: var(--ac-space-3); border-radius: var(--ac-radius-control); font-size: 0.8rem; overflow-x: auto; }
+</style>
+</head>
+<body>
+  <header class="site-header container">
+    <strong>event.co.ke</strong>
+    <span class="card__meta">Component Showcase — not a real page, see /planning/05-event-co-ke/user-flows.md for the real flows</span>
+  </header>
+
+  <main class="container">
+    <section class="showcase-section">
+      <h2>Card</h2>
+      <div class="showcase-row" id="card-demo"></div>
+    </section>
+
+    <section class="showcase-section">
+      <h2>Status Timeline</h2>
+      <div id="timeline-demo" style="max-width: 40rem;"></div>
+    </section>
+
+    <section class="showcase-section">
+      <h2>Bundle Builder (this platform's distinctive multi-vendor component)</h2>
+      <div id="bundle-demo" style="max-width: 32rem;"></div>
+    </section>
+
+    <section class="showcase-section">
+      <h2>Status Badge (pixel lane, code-generated)</h2>
+      <div class="showcase-row" id="badge-demo"></div>
+    </section>
+
+    <section class="showcase-section">
+      <h2>Sticky CTA</h2>
+      <div id="sticky-cta-demo"></div>
+    </section>
+
+    <section class="showcase-section">
+      <h2>Modal</h2>
+      <button class="btn btn--primary" id="open-modal-btn">Open modal</button>
+    </section>
+
+    <section class="showcase-section">
+      <h2>Live API check</h2>
+      <p class="card__meta">Fetches <code>GET /api/v1/store/products</code> from the real running backend — proves this page and the API are the same app, not a mockup.</p>
+      <pre class="showcase-output" id="api-output">loading…</pre>
+    </section>
+  </main>
+
+  <footer class="site-footer container">
+    <span class="card__meta">artcollect.co.ke-derived design system — see /planning/00-portfolio/artcollect-design-system.md</span>
+  </footer>
+
+  <script type="module">
+    import { createCard } from "/assets/js/components/card.js";
+    import { createStatusTimeline, EVENT_BOOKING_STEPS } from "/assets/js/components/status-timeline.js";
+    import { createBundleBuilder, markSlotFilled } from "/assets/js/components/bundle-builder.js";
+    import { createStatusBadge } from "/assets/js/components/status-badge.js";
+    import { createStickyCta } from "/assets/js/components/sticky-cta.js";
+    import { openModal } from "/assets/js/components/modal.js";
+
+    // Card
+    const cardDemo = document.getElementById("card-demo");
+    cardDemo.appendChild(createCard({
+      title: "Nairobi Frame Studio",
+      meta: ["Photographer", "KES 45,000 flat fee"],
+      onSelect: () => alert("Selected Nairobi Frame Studio"),
+    }));
+    cardDemo.appendChild(createCard({
+      title: "Savannah Catering Co.",
+      meta: ["Caterer", "KES 1,500 per head"],
+      onSelect: () => alert("Selected Savannah Catering Co."),
+    }));
+
+    // Status Timeline
+    document.getElementById("timeline-demo").appendChild(
+      createStatusTimeline({ steps: EVENT_BOOKING_STEPS, currentIndex: 1 })
+    );
+
+    // Bundle Builder
+    const builder = createBundleBuilder({
+      categories: ["photographer", "caterer", "venue"],
+      onSelectVendor: (category) => alert("Would browse vendors in: " + category),
+    });
+    document.getElementById("bundle-demo").appendChild(builder);
+    markSlotFilled(builder, "photographer", "Nairobi Frame Studio");
+
+    // Status Badge
+    const badgeDemo = document.getElementById("badge-demo");
+    badgeDemo.appendChild(createStatusBadge({ label: "requested", tone: "neutral" }));
+    badgeDemo.appendChild(createStatusBadge({ label: "confirmed", tone: "accent" }));
+    badgeDemo.appendChild(createStatusBadge({ label: "at risk", tone: "warning", icon: "alert" }));
+    badgeDemo.appendChild(createStatusBadge({ label: "completed", tone: "success", icon: "check" }));
+    badgeDemo.appendChild(createStatusBadge({ label: "cancelled", tone: "danger", icon: "alert" }));
+
+    // Sticky CTA
+    document.getElementById("sticky-cta-demo").appendChild(
+      createStickyCta({ label: "Book this vendor", onClick: () => alert("Would go to the booking form") })
+    );
+
+    // Modal
+    document.getElementById("open-modal-btn").addEventListener("click", () => {
+      const content = document.createElement("div");
+      content.innerHTML = "<h3>Confirm booking</h3><p>This is the shared Modal component.</p>";
+      const closeBtn = document.createElement("button");
+      closeBtn.className = "btn btn--secondary";
+      closeBtn.textContent = "Close";
+      content.appendChild(closeBtn);
+      const { close } = openModal({ content });
+      closeBtn.addEventListener("click", close);
+    });
+
+    // Live API check
+    fetch("/api/v1/store/products")
+      .then((r) => r.json())
+      .then((data) => { document.getElementById("api-output").textContent = JSON.stringify(data, null, 2); })
+      .catch((e) => { document.getElementById("api-output").textContent = "Error: " + e.message; });
+  </script>
+</body>
+</html>
