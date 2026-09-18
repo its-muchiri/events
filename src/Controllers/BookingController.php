@@ -4,8 +4,10 @@ namespace EventCo\Controllers;
 
 use EventCo\Config\Database;
 use EventCo\Core\Auth;
+use EventCo\Core\Escrow;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
+use Throwable;
 
 /**
  * Single-vendor bookings — maps to the "Bookings (Single-Vendor)" group in
@@ -60,22 +62,110 @@ final class BookingController
         Response::json($booking);
     }
 
+    private const VALID_STATUSES = [
+        'requested', 'confirmed', 'at_risk', 'replaced', 'fulfilled', 'completed', 'cancelled', 'disputed',
+    ];
+
+    /**
+     * Per api-endpoints.md, only the assigned vendor or an admin may update
+     * a booking's status. Moving to 'completed' releases the held escrow
+     * (Core\Escrow) to the vendor minus platform commission — the trigger
+     * point for the deposit's lifecycle, since event.co.ke's MVP has no
+     * separate customer confirm-receipt endpoint.
+     */
     public function updateStatus(Request $request): void
     {
-        $db = Database::connection();
-        $stmt = $db->prepare('UPDATE event_bookings SET status = :status, updated_at = NOW() WHERE id = :id');
-        $stmt->execute(['status' => $request->input('status'), 'id' => $request->params['id']]);
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
 
-        Response::json(['id' => (int) $request->params['id'], 'status' => $request->input('status')]);
+        $status = (string) $request->input('status', '');
+        if (!in_array($status, self::VALID_STATUSES, true)) {
+            Response::error('Invalid status', 422);
+            return;
+        }
+
+        $bookingId = (int) $request->params['id'];
+        $db = Database::connection();
+        $db->beginTransaction();
+
+        try {
+            $stmt = $db->prepare('SELECT * FROM event_bookings WHERE id = :id FOR UPDATE');
+            $stmt->execute(['id' => $bookingId]);
+            $booking = $stmt->fetch();
+
+            if (!$booking) {
+                $db->rollBack();
+                Response::notFound('Booking not found');
+                return;
+            }
+
+            $isAssignedVendor = (int) $booking['vendor_id'] === (int) $user['id'];
+            $isAdmin = ($user['account_type'] ?? null) === 'admin';
+            if (!$isAssignedVendor && !$isAdmin) {
+                $db->rollBack();
+                Response::forbidden('Only the assigned vendor or an admin can update this booking\'s status');
+                return;
+            }
+
+            $update = $db->prepare('UPDATE event_bookings SET status = :status, updated_at = NOW() WHERE id = :id');
+            $update->execute(['status' => $status, 'id' => $bookingId]);
+
+            $escrowResult = null;
+            if ($status === 'completed' && $booking['status'] !== 'completed') {
+                $escrowResult = Escrow::release($db, $bookingId, (int) $booking['vendor_id']);
+            }
+
+            $db->commit();
+        } catch (Throwable $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
+        Response::json([
+            'id' => $bookingId,
+            'status' => $status,
+            'escrow' => $escrowResult,
+        ]);
     }
 
+    /**
+     * Per api-endpoints.md, the booking's customer, its assigned vendor, or
+     * an admin may cancel it (subject to cancellation policy — refund
+     * handling on a forfeited/held deposit is not built this pass; see
+     * MVP_STATUS.md's Known issues).
+     */
     public function cancel(Request $request): void
     {
-        $db = Database::connection();
-        $stmt = $db->prepare('UPDATE event_bookings SET status = \'cancelled\', updated_at = NOW() WHERE id = :id');
-        $stmt->execute(['id' => $request->params['id']]);
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
 
-        Response::json(['id' => (int) $request->params['id'], 'status' => 'cancelled']);
+        $bookingId = (int) $request->params['id'];
+        $db = Database::connection();
+        $stmt = $db->prepare('SELECT * FROM event_bookings WHERE id = :id');
+        $stmt->execute(['id' => $bookingId]);
+        $booking = $stmt->fetch();
+
+        if (!$booking) {
+            Response::notFound('Booking not found');
+            return;
+        }
+
+        $isCustomer = (int) $booking['customer_id'] === (int) $user['id'];
+        $isAssignedVendor = (int) $booking['vendor_id'] === (int) $user['id'];
+        $isAdmin = ($user['account_type'] ?? null) === 'admin';
+        if (!$isCustomer && !$isAssignedVendor && !$isAdmin) {
+            Response::forbidden('You do not have access to this booking');
+            return;
+        }
+
+        $update = $db->prepare('UPDATE event_bookings SET status = \'cancelled\', updated_at = NOW() WHERE id = :id');
+        $update->execute(['id' => $bookingId]);
+
+        Response::json(['id' => $bookingId, 'status' => 'cancelled']);
     }
 
     public function vendorAvailability(Request $request): void

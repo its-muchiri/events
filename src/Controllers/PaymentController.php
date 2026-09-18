@@ -4,31 +4,249 @@ namespace EventCo\Controllers;
 
 use EventCo\Config\Database;
 use EventCo\Core\Auth;
+use EventCo\Core\Escrow;
+use EventCo\Core\Mpesa;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
+use PDOException;
+use Throwable;
 
+/**
+ * M-Pesa Daraja + card payment endpoints. This is a per-platform thin
+ * wrapper — the actual Daraja client lives in src/Core/Mpesa.php and the
+ * escrow hold/release logic in src/Core/Escrow.php; both should be
+ * extracted to a shared package once a second platform needs them,
+ * rather than duplicated per platform. Mirrored from laundry.co.ke's
+ * reference implementation for portfolio consistency. See
+ * planning/00-portfolio/shared-architecture.md's M-Pesa callback
+ * idempotency section for the idempotency contract mpesaCallback()
+ * implements.
+ */
 final class PaymentController
 {
+    /**
+     * Initiates an M-Pesa STK Push for a single-vendor booking's deposit
+     * (per prd.md: "one deposit" to secure the booking). Records a pending
+     * `payments` row keyed by Daraja's CheckoutRequestID — mpesaCallback()
+     * reconciles it once Safaricom calls back.
+     */
     public function stkPush(Request $request): void
     {
-        if (!Auth::requireUser($request)) {
+        $user = Auth::requireUser($request);
+        if (!$user) {
             return;
         }
 
-        Response::json(['status' => 'stk_push_initiated', 'checkout_request_id' => null], 202);
+        $bookingId = (int) $request->input('booking_id', 0);
+        if ($bookingId <= 0) {
+            Response::error('booking_id is required', 422);
+            return;
+        }
+
+        $db = Database::connection();
+        $stmt = $db->prepare('SELECT * FROM event_bookings WHERE id = :id');
+        $stmt->execute(['id' => $bookingId]);
+        $booking = $stmt->fetch();
+
+        if (!$booking) {
+            Response::notFound('Booking not found');
+            return;
+        }
+        if ((int) $booking['customer_id'] !== (int) $user['id']) {
+            Response::forbidden('This booking does not belong to you');
+            return;
+        }
+        if (in_array($booking['status'], ['cancelled', 'disputed'], true)) {
+            Response::error("Booking is {$booking['status']} and cannot be paid for", 422);
+            return;
+        }
+        if ($booking['payment_id'] !== null) {
+            $existing = self::fetchPayment($db, (int) $booking['payment_id']);
+            if ($existing && $existing['status'] === 'completed') {
+                Response::error('This booking has already been paid', 409);
+                return;
+            }
+        }
+
+        $phone = trim((string) $request->input('phone', $user['phone_number'] ?? ''));
+        if ($phone === '') {
+            Response::error('A phone number is required to send the M-Pesa prompt', 422);
+            return;
+        }
+        $phone = Mpesa::normalizePhone($phone);
+        if (!preg_match('/^254(7|1)\d{8}$/', $phone)) {
+            Response::error('Enter a valid Kenyan phone number (e.g. 07XXXXXXXX)', 422);
+            return;
+        }
+
+        $amount = (float) $booking['deposit_amount'];
+        if ($amount <= 0) {
+            Response::error('This booking has no payable deposit amount', 422);
+            return;
+        }
+
+        if (!Mpesa::isConfigured()) {
+            Response::error(
+                'M-Pesa is not configured in this environment (MPESA_* env vars are empty) — '
+                    . 'STK Push cannot be sent. See .env.example.',
+                503
+            );
+            return;
+        }
+
+        try {
+            $daraja = Mpesa::stkPush(
+                $phone,
+                $amount,
+                'BOOKING' . $bookingId,
+                'event.co.ke deposit for booking #' . $bookingId
+            );
+        } catch (Throwable $e) {
+            error_log((string) $e);
+            Response::error('Could not reach M-Pesa: ' . $e->getMessage(), 502);
+            return;
+        }
+
+        $checkoutRequestId = $daraja['CheckoutRequestID'] ?? null;
+        if (!$checkoutRequestId) {
+            Response::error('M-Pesa did not return a CheckoutRequestID', 502);
+            return;
+        }
+
+        $db->beginTransaction();
+        try {
+            $insert = $db->prepare(
+                'INSERT INTO payments (user_id, booking_id, type, method, amount, currency, external_reference, status, created_at, updated_at)
+                 VALUES (:user_id, :booking_id, \'charge\', \'mpesa_stk\', :amount, \'KES\', :external_reference, \'pending\', NOW(), NOW())'
+            );
+            $insert->execute([
+                'user_id' => $user['id'],
+                'booking_id' => $bookingId,
+                'amount' => $amount,
+                'external_reference' => $checkoutRequestId,
+            ]);
+            $paymentId = (int) $db->lastInsertId();
+
+            $update = $db->prepare('UPDATE event_bookings SET payment_id = :payment_id, updated_at = NOW() WHERE id = :id');
+            $update->execute(['payment_id' => $paymentId, 'id' => $bookingId]);
+
+            $db->commit();
+        } catch (Throwable $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
+        Response::json([
+            'status' => 'stk_push_initiated',
+            'checkout_request_id' => $checkoutRequestId,
+            'merchant_request_id' => $daraja['MerchantRequestID'] ?? null,
+            'customer_message' => $daraja['CustomerMessage'] ?? 'Enter your M-Pesa PIN on your phone to complete payment.',
+        ], 202);
     }
 
     public function card(Request $request): void
     {
-        if (!Auth::requireUser($request)) {
+        // Not part of event.co.ke's MVP cut (shared-architecture.md notes
+        // the card gateway matters most for construction.co.ke/solar.co.ke's
+        // higher transaction values) — M-Pesa STK Push is the only payment
+        // rail this platform's MVP requires. Returning a real 501 rather
+        // than a fake "initiated" 202 so callers don't believe a charge
+        // happened.
+        Response::error('Card payments are not available on event.co.ke yet — pay the deposit with M-Pesa.', 501);
+    }
+
+    /**
+     * M-Pesa STK Push callback receiver. Idempotent per
+     * shared-architecture.md: every inbound callback is logged to
+     * payment_callbacks_log keyed by CheckoutRequestID (UNIQUE) before any
+     * processing; a duplicate delivery hits the unique constraint and is
+     * treated as a no-op success rather than reprocessed.
+     */
+    public function mpesaCallback(Request $request): void
+    {
+        $payload = $request->body;
+        if (empty($payload)) {
+            $raw = file_get_contents('php://input') ?: '';
+            $decoded = json_decode($raw, true);
+            $payload = is_array($decoded) ? $decoded : [];
+        }
+
+        $callback = $payload['Body']['stkCallback'] ?? null;
+        $checkoutRequestId = $callback['CheckoutRequestID'] ?? null;
+
+        if (!is_array($callback) || !$checkoutRequestId) {
+            error_log('M-Pesa callback received with no recognizable stkCallback payload: ' . json_encode($payload));
+            Response::json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
             return;
         }
 
-        Response::json(['status' => 'card_charge_initiated'], 202);
-    }
+        $db = Database::connection();
 
-    public function mpesaCallback(Request $request): void
-    {
+        try {
+            $logStmt = $db->prepare(
+                'INSERT INTO payment_callbacks_log (checkout_request_id, raw_payload, created_at) VALUES (:id, :payload, NOW())'
+            );
+            $logStmt->execute(['id' => $checkoutRequestId, 'payload' => json_encode($payload)]);
+        } catch (PDOException $e) {
+            // SQLSTATE 23000 (MySQL duplicate entry) / 23505 (Postgres unique
+            // violation) — we've already processed this CheckoutRequestID.
+            // Per Daraja's integration guidance, ack success without
+            // reprocessing rather than erroring.
+            if ($e->getCode() === '23000' || $e->getCode() === '23505') {
+                Response::json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
+                return;
+            }
+            throw $e;
+        }
+
+        $resultCode = (int) ($callback['ResultCode'] ?? 1);
+
+        $paymentStmt = $db->prepare('SELECT * FROM payments WHERE external_reference = :ref AND method = \'mpesa_stk\' LIMIT 1');
+        $paymentStmt->execute(['ref' => $checkoutRequestId]);
+        $payment = $paymentStmt->fetch();
+
+        if (!$payment) {
+            error_log("M-Pesa callback for unknown CheckoutRequestID {$checkoutRequestId}");
+            $this->markCallbackProcessed($db, $checkoutRequestId);
+            Response::json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
+            return;
+        }
+
+        $db->beginTransaction();
+        try {
+            if ($resultCode === 0) {
+                $metadata = self::flattenCallbackMetadata($callback);
+
+                $update = $db->prepare(
+                    'UPDATE payments SET status = \'completed\', external_reference = :ref, updated_at = NOW() WHERE id = :id'
+                );
+                $update->execute([
+                    'ref' => (string) ($metadata['MpesaReceiptNumber'] ?? $checkoutRequestId),
+                    'id' => $payment['id'],
+                ]);
+
+                if ($payment['booking_id']) {
+                    Escrow::hold($db, (int) $payment['id'], (int) $payment['booking_id'], (float) $payment['amount']);
+
+                    $bookingUpdate = $db->prepare(
+                        'UPDATE event_bookings SET status = \'confirmed\', updated_at = NOW() WHERE id = :id AND status = \'requested\''
+                    );
+                    $bookingUpdate->execute(['id' => $payment['booking_id']]);
+                }
+            } else {
+                $update = $db->prepare('UPDATE payments SET status = \'failed\', updated_at = NOW() WHERE id = :id');
+                $update->execute(['id' => $payment['id']]);
+            }
+
+            $this->markCallbackProcessed($db, $checkoutRequestId);
+            $db->commit();
+        } catch (Throwable $e) {
+            $db->rollBack();
+            error_log((string) $e);
+        }
+
+        // Daraja expects this exact ack envelope regardless of our internal
+        // outcome — a non-success ack just makes Safaricom retry delivery.
         Response::json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
     }
 
@@ -41,10 +259,37 @@ final class PaymentController
 
         $db = Database::connection();
         $stmt = $db->prepare(
-            'SELECT * FROM payments WHERE user_id = :user_id AND type = \'payout\' ORDER BY created_at DESC'
+            'SELECT * FROM payments WHERE user_id = :user_id AND type IN (\'payout\', \'commission\') ORDER BY created_at DESC'
         );
         $stmt->execute(['user_id' => $user['id']]);
 
         Response::json($stmt->fetchAll());
+    }
+
+    private function markCallbackProcessed(\PDO $db, string $checkoutRequestId): void
+    {
+        $stmt = $db->prepare('UPDATE payment_callbacks_log SET processed_at = NOW() WHERE checkout_request_id = :id');
+        $stmt->execute(['id' => $checkoutRequestId]);
+    }
+
+    /** @return array<string,mixed> */
+    private static function flattenCallbackMetadata(array $callback): array
+    {
+        $items = $callback['CallbackMetadata']['Item'] ?? [];
+        $flat = [];
+        foreach ($items as $item) {
+            if (isset($item['Name'])) {
+                $flat[$item['Name']] = $item['Value'] ?? null;
+            }
+        }
+        return $flat;
+    }
+
+    /** @return array<string,mixed>|null */
+    private static function fetchPayment(\PDO $db, int $id): ?array
+    {
+        $stmt = $db->prepare('SELECT * FROM payments WHERE id = :id');
+        $stmt->execute(['id' => $id]);
+        return $stmt->fetch() ?: null;
     }
 }
