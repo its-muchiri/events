@@ -6,6 +6,8 @@ use EventCo\Config\Database;
 use EventCo\Core\Auth;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
+use EventCo\Models\VendorDirectory;
+use Throwable;
 
 /**
  * Vendor onboarding, directory browsing, public profile, favorites, and
@@ -75,40 +77,50 @@ final class VendorController
         }
     }
 
+    /**
+     * GET /api/v1/vendors — search/compare. Query params: q, category, area,
+     * date (Y-m-d; hides vendors already booked/blocked that day), pricing_model,
+     * min_price, max_price, min_rating, sort (rating|popular|price_asc|price_desc|newest), page.
+     */
     public function browse(Request $request): void
     {
-        $db = Database::connection();
-        $category = $request->query['category'] ?? null;
-
-        if ($category) {
-            $stmt = $db->prepare('SELECT * FROM vendor_listings WHERE status = \'active\' AND category = :category');
-            $stmt->execute(['category' => $category]);
-        } else {
-            $stmt = $db->query('SELECT * FROM vendor_listings WHERE status = \'active\'');
+        $rawDate = trim((string) ($request->query['date'] ?? ''));
+        if ($rawDate !== '' && !VendorDirectory::isValidDate($rawDate)) {
+            Response::error('date must be a real calendar date in YYYY-MM-DD form', 422);
+            return;
         }
 
-        Response::json($stmt->fetchAll());
+        try {
+            $result = VendorDirectory::search($request->query);
+        } catch (Throwable $e) {
+            error_log((string) $e);
+            Response::error('Vendor directory is unavailable right now', 503);
+            return;
+        }
+
+        Response::json([
+            'data' => $result['vendors'],
+            'page' => $result['page'],
+            'has_more' => $result['has_more'],
+        ]);
     }
 
     public function profile(Request $request): void
     {
-        $db = Database::connection();
-        $stmt = $db->prepare(
-            'SELECT u.id, u.full_name, u.status, vl.category, vl.business_name, vl.portfolio_urls, vl.pricing_model, vl.base_price, vl.service_area
-             FROM users u JOIN vendor_listings vl ON vl.vendor_id = u.id
-             WHERE u.id = :id'
-        );
-        $stmt->execute(['id' => $request->params['id']]);
-        $vendor = $stmt->fetch();
+        $vendorId = (int) $request->params['id'];
 
-        if (!$vendor) {
-            Response::notFound('Vendor not found');
+        try {
+            $vendor = VendorDirectory::find($vendorId);
+            if (!$vendor) {
+                Response::notFound('Vendor not found');
+                return;
+            }
+            $vendor['reviews'] = VendorDirectory::recentReviews($vendorId);
+        } catch (Throwable $e) {
+            error_log((string) $e);
+            Response::error('Vendor directory is unavailable right now', 503);
             return;
         }
-
-        $standingStmt = $db->prepare('SELECT * FROM vendor_standing WHERE vendor_id = :id');
-        $standingStmt->execute(['id' => $request->params['id']]);
-        $vendor['standing'] = $standingStmt->fetch() ?: null;
 
         Response::json($vendor);
     }

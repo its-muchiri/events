@@ -2,6 +2,8 @@
 /** @var string $prefillVendorId */
 /** @var string $prefillCategory */
 /** @var string $prefillBundleId */
+/** @var string $prefillDate */
+/** @var string $prefillPricingModel */
 /** @var array|null $currentUser */
 use EventCo\Core\View;
 ?>
@@ -24,15 +26,15 @@ use EventCo\Core\View;
 
   <label>
     Event date
-    <input type="date" name="event_date" required style="display:block; width:100%; padding: var(--ac-space-2); margin-top: var(--ac-space-1);">
+    <input type="date" name="event_date" value="<?= View::e($prefillDate) ?>" required style="display:block; width:100%; padding: var(--ac-space-2); margin-top: var(--ac-space-1);">
   </label>
 
   <label>
     Pricing model
     <select name="pricing_model" style="display:block; width:100%; padding: var(--ac-space-2); margin-top: var(--ac-space-1);">
-      <option value="flat_fee">Flat fee</option>
-      <option value="per_head">Per head</option>
-      <option value="per_hour">Per hour</option>
+      <?php foreach (['flat_fee' => 'Flat fee', 'per_head' => 'Per head', 'per_hour' => 'Per hour'] as $value => $label): ?>
+        <option value="<?= $value ?>" <?= $prefillPricingModel === $value ? 'selected' : '' ?>><?= $label ?></option>
+      <?php endforeach; ?>
     </select>
   </label>
 

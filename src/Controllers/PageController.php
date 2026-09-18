@@ -3,9 +3,11 @@
 namespace EventCo\Controllers;
 
 use EventCo\Config\Database;
+use EventCo\Core\Auth;
 use EventCo\Core\Request;
 use EventCo\Core\View;
 use EventCo\Models\EventBooking;
+use EventCo\Models\VendorDirectory;
 use Throwable;
 
 /**
@@ -29,15 +31,7 @@ final class PageController
         $dbError = null;
 
         try {
-            $stmt = Database::connection()->query(
-                'SELECT vl.vendor_id AS id, vl.category, vl.business_name, vl.base_price, vl.pricing_model, u.full_name
-                 FROM vendor_listings vl
-                 JOIN users u ON u.id = vl.vendor_id
-                 WHERE vl.status = \'active\'
-                 ORDER BY vl.id DESC
-                 LIMIT 6'
-            );
-            $vendors = $stmt->fetchAll();
+            $vendors = VendorDirectory::search(['sort' => 'newest'], 6)['vendors'];
         } catch (Throwable $e) {
             error_log((string) $e);
             $dbError = 'Live vendor data is unavailable in this environment — no database is connected yet.';
@@ -52,24 +46,11 @@ final class PageController
 
     public function vendorIndex(Request $request): void
     {
-        $category = $request->query['category'] ?? null;
-        $vendors = [];
+        $result = ['vendors' => [], 'page' => 1, 'has_more' => false, 'filters' => VendorDirectory::cleanFilters($request->query)];
         $dbError = null;
 
         try {
-            $db = Database::connection();
-            if ($category) {
-                $stmt = $db->prepare(
-                    'SELECT vl.*, u.full_name FROM vendor_listings vl JOIN users u ON u.id = vl.vendor_id
-                     WHERE vl.status = \'active\' AND vl.category = :category'
-                );
-                $stmt->execute(['category' => $category]);
-            } else {
-                $stmt = $db->query(
-                    'SELECT vl.*, u.full_name FROM vendor_listings vl JOIN users u ON u.id = vl.vendor_id WHERE vl.status = \'active\''
-                );
-            }
-            $vendors = $stmt->fetchAll();
+            $result = VendorDirectory::search($request->query);
         } catch (Throwable $e) {
             error_log((string) $e);
             $dbError = 'Live vendor data is unavailable in this environment — no database is connected yet.';
@@ -77,8 +58,10 @@ final class PageController
 
         View::render('vendor-index', [
             'title' => 'Browse vendors',
-            'vendors' => $vendors,
-            'category' => $category,
+            'vendors' => $result['vendors'],
+            'filters' => $result['filters'],
+            'page' => $result['page'],
+            'hasMore' => $result['has_more'],
             'bundleId' => $request->query['bundle_id'] ?? null,
             'dbError' => $dbError,
         ]);
@@ -88,32 +71,39 @@ final class PageController
     {
         $vendorId = (int) $request->params['id'];
         $vendor = null;
+        $reviews = [];
+        $isSaved = false;
         $dbError = null;
 
         try {
-            $db = Database::connection();
-            $stmt = $db->prepare(
-                'SELECT u.id, u.full_name, u.status, vl.category, vl.business_name, vl.portfolio_urls, vl.pricing_model, vl.base_price, vl.service_area
-                 FROM users u JOIN vendor_listings vl ON vl.vendor_id = u.id
-                 WHERE u.id = :id'
-            );
-            $stmt->execute(['id' => $vendorId]);
-            $vendor = $stmt->fetch() ?: null;
-
+            $vendor = VendorDirectory::find($vendorId);
             if ($vendor) {
-                $standingStmt = $db->prepare('SELECT * FROM vendor_standing WHERE vendor_id = :id');
-                $standingStmt->execute(['id' => $vendorId]);
-                $vendor['standing'] = $standingStmt->fetch() ?: null;
+                $reviews = VendorDirectory::recentReviews($vendorId);
+
+                $user = Auth::currentUser();
+                if ($user) {
+                    $stmt = Database::connection()->prepare(
+                        'SELECT 1 FROM saved_vendors WHERE customer_id = :c AND vendor_id = :v'
+                    );
+                    $stmt->execute(['c' => $user['id'], 'v' => $vendorId]);
+                    $isSaved = (bool) $stmt->fetchColumn();
+                }
             }
         } catch (Throwable $e) {
             error_log((string) $e);
             $dbError = 'Live vendor data is unavailable in this environment — no database is connected yet.';
         }
 
+        if (!$vendor && !$dbError) {
+            http_response_code(404);
+        }
+
         View::render('vendor-profile', [
             'title' => $vendor ? $vendor['business_name'] : 'Vendor #' . $vendorId,
             'vendorId' => $vendorId,
             'vendor' => $vendor,
+            'reviews' => $reviews,
+            'isSaved' => $isSaved,
             'bundleId' => $request->query['bundle_id'] ?? null,
             'dbError' => $dbError,
         ]);
@@ -126,6 +116,8 @@ final class PageController
             'prefillVendorId' => $request->query['vendor_id'] ?? '',
             'prefillCategory' => $request->query['category'] ?? '',
             'prefillBundleId' => $request->query['bundle_id'] ?? '',
+            'prefillDate' => VendorDirectory::isValidDate((string) ($request->query['event_date'] ?? '')) ? $request->query['event_date'] : '',
+            'prefillPricingModel' => $request->query['pricing_model'] ?? '',
         ]);
     }
 

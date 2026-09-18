@@ -34,4 +34,22 @@ final class View
     {
         return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8');
     }
+
+    /** "KES 1,500 per head" / "KES 45,000 flat fee" — how a vendor's base price reads everywhere. */
+    public static function priceLabel(float $amount, string $pricingModel): string
+    {
+        return 'KES ' . number_format($amount) . ' ' . str_replace('_', ' ', $pricingModel);
+    }
+
+    /** Rating as shown on vendor cards; unrated vendors say so rather than showing a misleading 0.0. */
+    public static function ratingHtml(float $average, int $reviewCount): string
+    {
+        if ($reviewCount === 0 && $average <= 0) {
+            return '<span class="rating rating--none">New — no reviews yet</span>';
+        }
+        $count = $reviewCount > 0 ? ' <span class="card__meta" style="display:inline">(' . $reviewCount . ')</span>' : '';
+
+        return '<span class="rating"><span class="rating__star" aria-hidden="true">★</span>'
+            . '<span class="sr-only">Rated </span>' . number_format($average, 1) . $count . '</span>';
+    }
 }

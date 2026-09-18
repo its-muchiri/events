@@ -7,6 +7,7 @@ use EventCo\Core\Auth;
 use EventCo\Core\Escrow;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
+use EventCo\Models\VendorDirectory;
 use Throwable;
 
 /**
@@ -168,8 +169,23 @@ final class BookingController
         Response::json(['id' => $bookingId, 'status' => 'cancelled']);
     }
 
+    /**
+     * GET /api/v1/vendors/{id}/availability — with `?date=YYYY-MM-DD` answers
+     * "can this vendor take that day" (calendar blocks + date-holding bookings);
+     * otherwise lists the vendor's calendar rows for a from/to range.
+     */
     public function vendorAvailability(Request $request): void
     {
+        $date = trim((string) ($request->query['date'] ?? ''));
+        if ($date !== '') {
+            if (!VendorDirectory::isValidDate($date)) {
+                Response::error('date must be a real calendar date in YYYY-MM-DD form', 422);
+                return;
+            }
+            Response::json(['date' => $date] + VendorDirectory::availabilityOn((int) $request->params['id'], $date));
+            return;
+        }
+
         $db = Database::connection();
         $stmt = $db->prepare(
             'SELECT * FROM vendor_availability WHERE vendor_id = :vendor_id AND date BETWEEN :from AND :to'

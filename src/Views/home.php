@@ -1,16 +1,29 @@
 <?php
 /** @var array $vendors */
 /** @var string|null $dbError */
+use EventCo\Core\Photos;
 use EventCo\Core\View;
 ?>
-<section style="padding-block: var(--ac-space-8) var(--ac-space-12);">
-  <h1 style="font-size: 2.5rem; max-width: 32rem;">Book event vendors — one at a time, or all at once.</h1>
-  <p style="max-width: var(--ac-measure); margin-block: var(--ac-space-4);">
-    Photographers, caterers, venues, and more — book a single vendor directly, or assemble a full event bundle with one combined deposit.
+<section class="hero" style="background-image: url('<?= View::e(Photos::hero()) ?>');">
+  <h1>Book event vendors — one at a time, or all at once.</h1>
+  <p>
+    Photographers, caterers, venues, and more — book a single vendor directly and pay your deposit with M-Pesa, or assemble a full event bundle with one combined deposit.
   </p>
-  <div style="display:flex; gap: var(--ac-space-3);">
-    <a href="/vendors" class="btn btn--secondary">Browse vendors</a>
-    <a href="/bundles/new" class="btn btn--primary">Build a bundle</a>
+  <div style="display:flex; flex-wrap:wrap; gap: var(--ac-space-3);">
+    <a href="/vendors" class="btn btn--primary">Browse vendors</a>
+    <a href="/bundles/new" class="btn btn--secondary">Build a bundle</a>
+  </div>
+</section>
+
+<section style="padding-block: var(--ac-space-8) 0;">
+  <h2>Find the right vendor</h2>
+  <div class="grid" style="margin-top: var(--ac-space-4);">
+    <?php foreach (Photos::CATEGORIES as $slug => $label): ?>
+      <a class="category-tile" href="/vendors?category=<?= urlencode($slug) ?>">
+        <img src="<?= View::e(Photos::categoryCover($slug)) ?>" alt="" loading="lazy" width="640" height="427">
+        <span><?= View::e($label) ?></span>
+      </a>
+    <?php endforeach; ?>
   </div>
 </section>
 
@@ -37,18 +50,10 @@ use EventCo\Core\View;
   <?php if ($dbError): ?>
     <p class="card__meta"><?= View::e($dbError) ?></p>
   <?php elseif (empty($vendors)): ?>
-    <p class="card__meta">No vendors are onboarded yet in this environment — see src/Controllers/VendorController.php to add one, or seed the <code>vendor_listings</code> table directly for a demo.</p>
+    <p class="card__meta">No vendors are listed yet — check back soon.</p>
   <?php else: ?>
-    <div style="display:flex; flex-wrap:wrap; gap: var(--ac-space-4); margin-top: var(--ac-space-4);">
-      <?php foreach ($vendors as $vendor): ?>
-        <div class="card" style="width: 16rem;">
-          <h3><?= View::e($vendor['business_name']) ?></h3>
-          <div class="card__meta">
-            <?= View::e(ucfirst($vendor['category'])) ?> · KES <?= number_format((float) $vendor['base_price']) ?> <?= View::e(str_replace('_', ' ', $vendor['pricing_model'])) ?>
-          </div>
-          <a href="/vendors/<?= (int) $vendor['id'] ?>" class="btn btn--secondary" style="margin-top: var(--ac-space-3);">View vendor</a>
-        </div>
-      <?php endforeach; ?>
+    <div class="grid" style="margin-top: var(--ac-space-4);">
+      <?php foreach ($vendors as $vendor): include __DIR__ . '/partials/vendor-card.php'; endforeach; ?>
     </div>
   <?php endif; ?>
 </section>

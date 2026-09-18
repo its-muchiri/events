@@ -24,7 +24,7 @@ $isCritical = $critical ?? false;
 <body>
   <header class="site-header container">
     <a href="/" style="text-decoration:none;color:inherit;"><strong>event.co.ke</strong></a>
-    <nav aria-label="Primary" style="display:flex; align-items:center; gap: var(--ac-space-3);">
+    <nav aria-label="Primary" class="site-nav">
       <a href="/vendors" class="btn btn--secondary">Browse vendors</a>
       <a href="/bundles/new" class="btn btn--primary">Build a bundle</a>
       <?php if (!empty($currentUser)): ?>

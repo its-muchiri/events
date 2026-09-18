@@ -1,6 +1,6 @@
 # Tests
 
-No test runner is wired up yet. Recommended: PHPUnit for `src/`, a small assertion runner (or Vitest) for `public/assets/js/`.
+No test runner is wired up yet. `tests/vendor_directory_test.php` is a standalone assertion script for the vendor directory (`php database/seed_demo.php && php tests/vendor_directory_test.php`). Recommended: PHPUnit for `src/`, a small assertion runner (or Vitest) for `public/assets/js/`.
 
 Priority areas once real business logic lands:
 
