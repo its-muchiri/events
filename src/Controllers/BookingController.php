@@ -3,6 +3,7 @@
 namespace EventCo\Controllers;
 
 use EventCo\Config\Database;
+use EventCo\Core\Auth;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
 
@@ -15,6 +16,11 @@ final class BookingController
 {
     public function create(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         $stmt = $db->prepare(
             'INSERT INTO event_bookings
@@ -24,7 +30,7 @@ final class BookingController
                  :head_count, :hours_booked, :total_amount, :deposit_amount, NOW(), NOW())'
         );
         $stmt->execute([
-            'customer_id' => $request->user['id'] ?? null,
+            'customer_id' => $user['id'],
             'vendor_id' => $request->input('vendor_id'),
             'bundle_id' => $request->input('bundle_id'),
             'category' => $request->input('category'),
@@ -89,6 +95,11 @@ final class BookingController
 
     public function updateMyAvailability(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         // See Database::driver() and planning/00-portfolio/ui-implementation-plan.md
         // for why this branches (Vercel's Marketplace has no MySQL-compatible database).
@@ -98,7 +109,7 @@ final class BookingController
             : 'INSERT INTO vendor_availability (vendor_id, date, is_booked) VALUES (:vendor_id, :date, false)
                ON DUPLICATE KEY UPDATE is_booked = is_booked';
         $stmt = $db->prepare($sql);
-        $stmt->execute(['vendor_id' => $request->user['id'] ?? null, 'date' => $request->input('date')]);
+        $stmt->execute(['vendor_id' => $user['id'], 'date' => $request->input('date')]);
 
         Response::json(['status' => 'updated']);
     }

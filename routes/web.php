@@ -12,9 +12,17 @@
  * @var \EventCo\Core\Router $router
  */
 
+use EventCo\Controllers\AuthController;
 use EventCo\Controllers\PageController;
 
 $page = new PageController();
+$auth = new AuthController();
+
+$router->get('/signup', [$auth, 'showSignup']);
+$router->post('/signup', [$auth, 'register']);
+$router->get('/login', [$auth, 'showLogin']);
+$router->post('/login', [$auth, 'login']);
+$router->post('/logout', [$auth, 'logout']);
 
 $router->get('/', [$page, 'home']);
 $router->get('/vendors', [$page, 'vendorIndex']);

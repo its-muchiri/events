@@ -3,6 +3,7 @@
 namespace EventCo\Controllers;
 
 use EventCo\Config\Database;
+use EventCo\Core\Auth;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
 
@@ -19,6 +20,11 @@ final class DisputeController
 {
     public function store(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         $stmt = $db->prepare(
             'INSERT INTO disputes (booking_id, raised_by, category, description, evidence_urls, status, created_at)
@@ -26,7 +32,7 @@ final class DisputeController
         );
         $stmt->execute([
             'booking_id' => $request->params['id'],
-            'raised_by' => $request->user['id'] ?? null,
+            'raised_by' => $user['id'],
             'category' => $request->input('category'),
             'description' => $request->input('description'),
             'evidence_urls' => json_encode($request->input('evidence_urls', [])),
@@ -45,6 +51,11 @@ final class DisputeController
 
     public function resolve(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         $stmt = $db->prepare(
             'UPDATE disputes SET status = :status, resolved_by = :resolved_by, resolution_notes = :notes, resolved_at = NOW()
@@ -52,7 +63,7 @@ final class DisputeController
         );
         $stmt->execute([
             'status' => $request->input('status'),
-            'resolved_by' => $request->user['id'] ?? null,
+            'resolved_by' => $user['id'],
             'notes' => $request->input('resolution_notes'),
             'id' => $request->params['id'],
         ]);

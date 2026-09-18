@@ -3,6 +3,7 @@
 namespace EventCo\Controllers;
 
 use EventCo\Config\Database;
+use EventCo\Core\Auth;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
 
@@ -21,6 +22,11 @@ final class BundleController
 {
     public function create(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         $stmt = $db->prepare(
             'INSERT INTO event_bundle
@@ -29,7 +35,7 @@ final class BundleController
              VALUES (:customer_id, :event_type, :event_date, :address, :lat, :lng, 0, 0, \'assembling\', NOW(), NOW())'
         );
         $stmt->execute([
-            'customer_id' => $request->user['id'] ?? null,
+            'customer_id' => $user['id'],
             'event_type' => $request->input('event_type'),
             'event_date' => $request->input('event_date'),
             'address' => $request->input('event_location_address'),
@@ -42,6 +48,11 @@ final class BundleController
 
     public function addVendor(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         $stmt = $db->prepare(
             'INSERT INTO event_bookings
@@ -52,7 +63,7 @@ final class BundleController
                  :head_count, :hours_booked, :total_amount, :deposit_amount, NOW(), NOW())'
         );
         $stmt->execute([
-            'customer_id' => $request->user['id'] ?? null,
+            'customer_id' => $user['id'],
             'vendor_id' => $request->input('vendor_id'),
             'bundle_id' => $request->params['id'],
             'category' => $request->input('category'),
@@ -134,6 +145,11 @@ final class BundleController
 
     public function reportVendorCancellation(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
 
         $stmt = $db->prepare('SELECT bundle_id, event_date FROM event_bookings WHERE id = :id');
@@ -155,7 +171,7 @@ final class BundleController
         $stmt->execute([
             'bundle_id' => $booking['bundle_id'],
             'booking_id' => $request->params['id'],
-            'vendor_id' => $request->user['id'] ?? null,
+            'vendor_id' => $user['id'],
             'days_until_event' => $daysUntilEvent,
         ]);
 
@@ -183,13 +199,18 @@ final class BundleController
 
     public function attachReplacementOptions(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         // TODO: replacement-vendor matching (same category, area, date
         // availability) is unimplemented — see open-questions.md and
         // user-flows.md step 3-4. This endpoint currently just assigns a
         // coordinator to the case.
         $db = Database::connection();
         $stmt = $db->prepare('UPDATE bundle_cancellation_incidents SET coordinator_id = :coordinator_id WHERE id = :id');
-        $stmt->execute(['coordinator_id' => $request->user['id'] ?? null, 'id' => $request->params['id']]);
+        $stmt->execute(['coordinator_id' => $user['id'], 'id' => $request->params['id']]);
 
         Response::json(['id' => (int) $request->params['id'], 'status' => 'coordinator_assigned']);
     }

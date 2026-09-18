@@ -3,6 +3,7 @@
 namespace EventCo\Controllers;
 
 use EventCo\Config\Database;
+use EventCo\Core\Auth;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
 
@@ -21,8 +22,13 @@ final class VendorController
 {
     public function onboard(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
-        $vendorId = $request->user['id'] ?? null;
+        $vendorId = $user['id'];
 
         $documents = $request->input('documents', []);
         if (empty($documents)) {
@@ -109,6 +115,11 @@ final class VendorController
 
     public function save(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         // See Database::driver() and planning/00-portfolio/ui-implementation-plan.md
         // for why this branches (Vercel's Marketplace has no MySQL-compatible database).
@@ -118,19 +129,24 @@ final class VendorController
             : 'INSERT INTO saved_vendors (customer_id, vendor_id, created_at) VALUES (:customer_id, :vendor_id, NOW())
                ON DUPLICATE KEY UPDATE created_at = created_at';
         $stmt = $db->prepare($sql);
-        $stmt->execute(['customer_id' => $request->user['id'] ?? null, 'vendor_id' => $request->params['id']]);
+        $stmt->execute(['customer_id' => $user['id'], 'vendor_id' => $request->params['id']]);
 
         Response::json(['status' => 'saved']);
     }
 
     public function createBusinessAccount(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         $stmt = $db->prepare(
             'INSERT INTO business_accounts (primary_user_id, organization_name, created_at) VALUES (:user_id, :org_name, NOW())'
         );
         $stmt->execute([
-            'user_id' => $request->user['id'] ?? null,
+            'user_id' => $user['id'],
             'org_name' => $request->input('organization_name'),
         ]);
 

@@ -3,6 +3,7 @@
 namespace EventCo\Controllers;
 
 use EventCo\Config\Database;
+use EventCo\Core\Auth;
 use EventCo\Core\Request;
 use EventCo\Core\Response;
 
@@ -32,6 +33,11 @@ final class StoreController
 
     public function createOrder(Request $request): void
     {
+        $user = Auth::requireUser($request);
+        if (!$user) {
+            return;
+        }
+
         $db = Database::connection();
         $items = $request->input('items', []);
 
@@ -63,7 +69,7 @@ final class StoreController
                  VALUES (:customer_id, \'pending\', :total, :address, NOW(), NOW())'
             );
             $stmt->execute([
-                'customer_id' => $request->user['id'] ?? null,
+                'customer_id' => $user['id'],
                 'total' => $total,
                 'address' => $request->input('delivery_address'),
             ]);

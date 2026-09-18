@@ -2,9 +2,16 @@
 /** @var string $prefillVendorId */
 /** @var string $prefillCategory */
 /** @var string $prefillBundleId */
+/** @var array|null $currentUser */
 use EventCo\Core\View;
 ?>
 <h1>Book a vendor</h1>
+
+<?php if (empty($currentUser)): ?>
+  <p class="card__meta" role="alert" style="margin-bottom: var(--ac-space-4);">
+    <a href="/login">Log in</a> or <a href="/signup">sign up</a> first — a booking is tied to your account.
+  </p>
+<?php endif; ?>
 
 <form id="booking-form" style="max-width: 32rem; display:flex; flex-direction:column; gap: var(--ac-space-4);">
   <input type="hidden" name="vendor_id" value="<?= View::e($prefillVendorId) ?>">
@@ -66,11 +73,13 @@ use EventCo\Core\View;
       });
       const data = await res.json();
 
+      if (res.status === 401) {
+        resultEl.innerHTML = 'You need to <a href="/login">log in</a> first to request a booking.';
+        return;
+      }
+
       if (!res.ok) {
-        // Expected right now: no auth middleware exists yet, so customer_id
-        // resolves to null and the database rejects the insert — the real,
-        // current state of the app. See src/Controllers/BookingController.php.
-        resultEl.textContent = "Booking failed: " + (data.error || "unknown error") + " — expected until auth middleware and a live database are wired up.";
+        resultEl.textContent = "Booking failed: " + (data.error || "unknown error");
         return;
       }
 

@@ -1,6 +1,15 @@
+<?php
+/** @var array|null $currentUser */
+?>
 <h1>Build an event bundle</h1>
 
 <p class="card__meta">Start your bundle with the event details, then add a vendor per category (photographer, caterer, venue, and more) — one combined deposit covers the whole bundle.</p>
+
+<?php if (empty($currentUser)): ?>
+  <p class="card__meta" role="alert" style="margin-bottom: var(--ac-space-4);">
+    <a href="/login">Log in</a> or <a href="/signup">sign up</a> first — a bundle is tied to your account.
+  </p>
+<?php endif; ?>
 
 <form id="bundle-form" style="max-width: 32rem; display:flex; flex-direction:column; gap: var(--ac-space-4); margin-top: var(--ac-space-4);">
   <label>
@@ -49,11 +58,13 @@
       });
       const data = await res.json();
 
+      if (res.status === 401) {
+        resultEl.innerHTML = 'You need to <a href="/login">log in</a> first to start a bundle.';
+        return;
+      }
+
       if (!res.ok) {
-        // Expected right now: no auth middleware exists yet, so customer_id
-        // resolves to null and the database rejects the insert. See
-        // src/Controllers/BundleController.php.
-        resultEl.textContent = "Bundle creation failed: " + (data.error || "unknown error") + " — expected until auth middleware and a live database are wired up.";
+        resultEl.textContent = "Bundle creation failed: " + (data.error || "unknown error");
         return;
       }
 

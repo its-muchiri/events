@@ -6,6 +6,7 @@
  * @var \EventCo\Core\Router $router
  */
 
+use EventCo\Controllers\AuthController;
 use EventCo\Controllers\BookingController;
 use EventCo\Controllers\BundleController;
 use EventCo\Controllers\DisputeController;
@@ -14,6 +15,7 @@ use EventCo\Controllers\ReviewController;
 use EventCo\Controllers\StoreController;
 use EventCo\Controllers\VendorController;
 
+$auth = new AuthController();
 $booking = new BookingController();
 $bundle = new BundleController();
 $payment = new PaymentController();
@@ -21,6 +23,12 @@ $review = new ReviewController();
 $dispute = new DisputeController();
 $vendor = new VendorController();
 $store = new StoreController();
+
+// Auth (shared identity/auth module — see planning/00-portfolio/shared-architecture.md)
+$router->post('/api/v1/auth/register', [$auth, 'register']);
+$router->post('/api/v1/auth/login', [$auth, 'login']);
+$router->post('/api/v1/auth/logout', [$auth, 'logout']);
+$router->get('/api/v1/auth/me', [$auth, 'me']);
 
 // Bookings (single-vendor)
 $router->post('/api/v1/bookings', [$booking, 'create']);

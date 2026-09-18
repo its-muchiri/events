@@ -5,8 +5,11 @@
  * optional `$title` are provided by View::render(). `$critical` (bool),
  * when set true by a page, marks <main> with the `.critical-flow` class —
  * see artcollect-design-system.md §7: deposit/booking payment and the
- * vendor-cancellation-incident surface carry zero decoration.
+ * vendor-cancellation-incident surface carry zero decoration. `$currentUser`
+ * is injected by View::render() (see src/Core/View.php) for the nav below.
  */
+use EventCo\Core\View;
+
 $pageTitle = isset($title) ? $title . ' — event.co.ke' : 'event.co.ke';
 $isCritical = $critical ?? false;
 ?>
@@ -21,9 +24,18 @@ $isCritical = $critical ?? false;
 <body>
   <header class="site-header container">
     <a href="/" style="text-decoration:none;color:inherit;"><strong>event.co.ke</strong></a>
-    <nav aria-label="Primary" style="display:flex; gap: var(--ac-space-3);">
+    <nav aria-label="Primary" style="display:flex; align-items:center; gap: var(--ac-space-3);">
       <a href="/vendors" class="btn btn--secondary">Browse vendors</a>
       <a href="/bundles/new" class="btn btn--primary">Build a bundle</a>
+      <?php if (!empty($currentUser)): ?>
+        <span class="card__meta">Hi, <?= View::e($currentUser['full_name']) ?></span>
+        <form method="post" action="/logout" style="display:inline;">
+          <button type="submit" class="btn btn--secondary">Log out</button>
+        </form>
+      <?php else: ?>
+        <a href="/login" class="btn btn--secondary">Log in</a>
+        <a href="/signup" class="btn btn--primary">Sign up</a>
+      <?php endif; ?>
     </nav>
   </header>
 
